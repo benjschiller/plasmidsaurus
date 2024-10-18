@@ -1,59 +1,53 @@
 FROM python:3.12.7-bullseye AS base
 
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Versions
-ARG SPADES_VERSION=4.0.0
+ARG MINIFORGE_VERSION="24.7.1-2"
+ARG FILTLONG_VERSION=v0.2.1
+ARG FLYE_VERSION=2.9.5
 ARG PROKKA_VERSION=v1.14.5
 
-ENV SPADES_VERSION=${SPADES_VERSION}
+ENV MINIFORGE_VERSION=${MINIFORGE_VERSION}
+ENV FILTLONG_VERSION=${FILTLONG_VERSION}
 ENV PROKKA_VERSION=${PROKKA_VERSION}
 
 # Install OS-level dependencies
 RUN apt-get update && apt-get install -y \
-    wget \
-    # these are for prokka \
-    libdatetime-perl libxml-simple-perl libdigest-md5-perl git default-jre bioperl \
+    wget git \
     && rm -rf /var/lib/apt/lists/*
-
-# Install BioPerl
-RUN cpan Bio::Perl
 
 # Make /opt directory for eveything
 RUN mkdir -p /opt
 WORKDIR /opt
 
-# Install spades in a separate layer (debug-friendly)
-FROM base AS spades
-RUN wget -q https://github.com/ablab/spades/releases/download/v${SPADES_VERSION}/SPAdes-${SPADES_VERSION}-Linux.tar.gz && \
-    tar xzf SPAdes-${SPADES_VERSION}-Linux.tar.gz -C /opt && \
-    rm -f /opt/SPAdes-${SPADES_VERSION}-Linux.tar.gz
+FROM base AS mamba
+# Install Miniforge3 (mamba and conda)
+RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-$(uname)-$(uname -m).sh" && \
+    bash Miniforge3-${MINIFORGE_VERSION}-$(uname)-$(uname -m).sh -b -p /opt/miniforge3
+COPY environment.yaml .
+RUN /opt/miniforge3/bin/conda env create -f environment.yaml
 
-
-# Install prokka in a spearate layer
-FROM base AS prokka
-RUN wget -q https://github.com/tseemann/prokka/archive/refs/tags/${PROKKA_VERSION}.tar.gz && \
-    tar xzf ${PROKKA_VERSION}.tar.gz && \
-    # n.b. inconsistent use of v in naming, add it back
-    mv prokka-${PROKKA_VERSION#v} prokka-${PROKKA_VERSION} && \
-    rm -f ${PROKKA_VERSION}.tar.gz
-# expose included binaries in PATH (smdh)
-ENV PATH="/opt/prokka-${PROKKA_VERSION}/binaries/linux:$PATH"
-RUN /opt/prokka-${PROKKA_VERSION}/bin/prokka --setupdb
-
-# Install venv separately
-FROM base AS venv
-# Create a virtual environment
-RUN python3 -m venv venv
-ADD requirements.txt /opt/requirements.txt
-
-# Install the Python dependencies
-RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+# Install Filtlong (use separate layers for easy debugging and faster builds)
+FROM base AS filtlong
+RUN wget -q https://github.com/rrwick/Filtlong/archive/refs/tags/${FILTLONG_VERSION}.tar.gz && \
+    tar xfz ${FILTLONG_VERSION}.tar.gz && \
+    mv Filtlong-${FILTLONG_VERSION#v} Filtlong-${FILTLONG_VERSION} && \
+    cd Filtlong-${FILTLONG_VERSION} && \
+    make && \
+    bin/filtlong -h
 
 # bring it all together
-FROM base
-COPY --from=spades /opt/SPAdes-${SPADES_VERSION}-Linux /opt/SPAdes-${SPADES_VERSION}-Linux
-COPY --from=prokka /opt/prokka-${PROKKA_VERSION} /opt/prokka-${PROKKA_VERSION}
-COPY --from=venv /opt/venv /opt/venv
+FROM mamba
+COPY --from=filtlong /opt/Filtlong-${FILTLONG_VERSION} /opt/Filtlong-${FILTLONG_VERSION}
 
-# Set the environment variable to use the virtual environment
-ENV VIRTUAL_ENV=/opt/venv
-ENV PATH="/opt/venv/bin:/opt/prokka-${PROKKA_VERSION}/bin:/opt/prokka-${PROKKA_VERSION}/binaries/common:/opt/prokka-${PROKKA_VERSION}/binaries/linux:/opt/SPAdes-${SPADES_VERSION}-Linux/bin:$PATH"
+# Set the default conda env
+ENV CONDA_DEFAULT_ENV $conda_env
+
+ENV PATH="/opt/Filtlong-${FILTLONG_VERSION}/bin:$PATH"
+
+COPY entrypoint.sh .
+ADD . /opt/app
+WORKDIR /opt/app
+ENTRYPOINT [ "/opt/entrypoint.sh" ]
