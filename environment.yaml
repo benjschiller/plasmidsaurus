@@ -1,0 +1,14 @@
+name: plasmidsaurus
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - snakemake
+  - samtools
+  - flye
+  - minimap2
+  - racon
+  - quast
+  - checkm-genome
+  - prokka
