@@ -28,6 +28,9 @@ RUN curl -L -O "https://github.com/conda-forge/miniforge/releases/download/${MIN
     bash Miniforge3-${MINIFORGE_VERSION}-$(uname)-$(uname -m).sh -b -p /opt/miniforge3
 COPY environment.yaml .
 RUN /opt/miniforge3/bin/conda env create -f environment.yaml
+# hacky but works for bash
+RUN /opt/miniforge3/bin/conda init && \
+    echo "conda activate plasmidsaurus" >> ~/.bashrc
 
 # Install Filtlong (use separate layers for easy debugging and faster builds)
 FROM base AS filtlong
@@ -43,11 +46,7 @@ FROM mamba
 COPY --from=filtlong /opt/Filtlong-${FILTLONG_VERSION} /opt/Filtlong-${FILTLONG_VERSION}
 
 # Set the default conda env
-ENV CONDA_DEFAULT_ENV $conda_env
+ENV CONDA_DEFAULT_ENV=plasmidsaurus
 
 ENV PATH="/opt/Filtlong-${FILTLONG_VERSION}/bin:$PATH"
-
-COPY entrypoint.sh .
-ADD . /opt/app
 WORKDIR /opt/app
-ENTRYPOINT [ "/opt/entrypoint.sh" ]

@@ -1,3 +1,0 @@
-cutadapt==4.9
-QUAST==5.2.0
-CheckM-genome==1.2.3
